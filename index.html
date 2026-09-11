@@ -168,7 +168,7 @@
   <div class="card">
     <div id="chat"></div>
     <div class="toolbar">
-      <button onclick="copyLast()">📋 نسخ آخر إجابة</button>
+      <button id="againBtn" onclick="send(true)">🔄 الإجابة على السؤال الأخير</button>
       <button onclick="clearChat()">🗑️ محادثة جديدة</button>
     </div>
   </div>
@@ -179,7 +179,7 @@
 </div>
 
 <script>
-  let lastAnswer = "";
+  let lastQuestion = "";
   let busy = false;
 
   function $(id) { return document.getElementById(id); }
@@ -211,10 +211,14 @@
   }
 
   // ======= الدالة الرئيسية: تعمل عند الضغط على زر "ابحث الآن" =======
-  async function send() {
+  // أو عند الضغط على "الإجابة على السؤال الأخير" (answerLast = true)
+  async function send(answerLast) {
     if (busy) return;
-    const q = $("question").value.trim();
-    if (!q) { alert("اكتب سؤالك أولاً 🙂"); return; }
+    const q = answerLast ? lastQuestion : $("question").value.trim();
+    if (!q) {
+      alert(answerLast ? "لا يوجد سؤال سابق بعد — اكتب سؤالاً أولاً 🙂" : "اكتب سؤالك أولاً 🙂");
+      return;
+    }
     if (typeof puter === "undefined" || !puter.ai) {
       alert("تعذّر تحميل مكتبة Puter — تأكد من اتصالك بالإنترنت ثم أعد تحميل الصفحة");
       return;
@@ -224,11 +228,18 @@
     const useStream = $("stream").checked;
     const imgUrl = $("imageUrl").value.trim();
 
+    // عند إعادة الإجابة على السؤال الأخير: نطلب إجابة شاملة بكامل المعلومات
+    const fullQ = answerLast
+      ? q + "\n\n(أجب بإجابة شاملة ومفصلة تغطي كل المعلومات المهمة والتفاصيل)"
+      : q;
+    if (!answerLast) lastQuestion = q;
+
     busy = true;
     $("sendBtn").disabled = true;
-    addMsg("user", "أنت", q);
+    $("againBtn").disabled = true;
+    addMsg("user", answerLast ? "أنت (إعادة الإجابة)" : "أنت", q);
     const M = addMsg("bot", "المساعد", "");
-    showStatus("جاري البحث، انتظر قليلا...");
+    showStatus(answerLast ? "جاري إعداد إجابة شاملة، انتظر قليلا..." : "جاري البحث، انتظر قليلا...");
 
     let raw = "";
     let respObj = null;
@@ -236,8 +247,8 @@
       if (useStream) {
         // بث مباشر مثل المثال 5 في الصور
         const response = imgUrl
-          ? await puter.ai.chat(q, imgUrl, { model, stream: true })
-          : await puter.ai.chat(q, { model, stream: true });
+          ? await puter.ai.chat(fullQ, imgUrl, { model, stream: true })
+          : await puter.ai.chat(fullQ, { model, stream: true });
         respObj = response;
 
         let scheduled = false;
@@ -259,13 +270,12 @@
       } else {
         // إجابة كاملة دفعة واحدة مثل المثال 1 في الصور
         const response = imgUrl
-          ? await puter.ai.chat(q, imgUrl, { model })
-          : await puter.ai.chat(q, { model });
+          ? await puter.ai.chat(fullQ, imgUrl, { model })
+          : await puter.ai.chat(fullQ, { model });
         respObj = response;
         raw = getText(response);
       }
 
-      lastAnswer = raw;
       if (!raw.trim()) {
         M.body.textContent = "لم تصل إجابة. حاول مرة أخرى.";
       } else {
@@ -279,6 +289,7 @@
       hideStatus();
       busy = false;
       $("sendBtn").disabled = false;
+      $("againBtn").disabled = false;
       scrollDown();
     }
   }
@@ -458,22 +469,8 @@ print("البصل مفيد!")
     B.body.innerHTML = renderMarkdown(sample, cites) + sourcesHtml(cites);
   }
 
-  // نسخ آخر إجابة
-  function copyLast() {
-    if (!lastAnswer) { alert("لا توجد إجابة بعد"); return; }
-    const done = () => alert("✅ تم نسخ الإجابة");
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(lastAnswer).then(done).catch(() => fallbackCopy(done));
-    } else { fallbackCopy(done); }
-  }
-  function fallbackCopy(done) {
-    const t = document.createElement("textarea");
-    t.value = lastAnswer; document.body.appendChild(t); t.select();
-    document.execCommand("copy"); document.body.removeChild(t); done();
-  }
-
   // محادثة جديدة
-  function clearChat() { $("chat").innerHTML = ""; lastAnswer = ""; }
+  function clearChat() { $("chat").innerHTML = ""; lastQuestion = ""; }
 
   // إرسال سريع بالضغط على Ctrl + Enter
   $("question").addEventListener("keydown", e => {
