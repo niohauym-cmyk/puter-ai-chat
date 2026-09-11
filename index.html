@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>مساعد البحث الذكي - Puter AI</title>
+
+  <!-- مكتبة Puter.js من الصور - بدون مفاتيح API -->
+  <script src="https://js.puter.com/v2/"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Segoe UI", Tahoma, Arial, sans-serif; }
+    body {
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      min-height: 100vh; color: #fff; padding: 20px;
+    }
+    .app { max-width: 860px; margin: 0 auto; }
+
+    header {
+      text-align: center; padding: 24px 16px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px; margin-bottom: 18px;
+    }
+    header h1 { font-size: 26px; margin-bottom: 6px; }
+    header p { color: #c7c5e8; font-size: 14px; }
+
+    .card {
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px; padding: 18px; margin-bottom: 18px;
+    }
+    label { display: block; font-size: 14px; margin-bottom: 6px; color: #dcd9ff; }
+
+    select, textarea, input[type=text] {
+      width: 100%; background: rgba(0,0,0,.35); color: #fff;
+      border: 1px solid rgba(255,255,255,.2); border-radius: 12px;
+      padding: 12px; font-size: 15px; outline: none;
+    }
+    select option { background: #302b63; color: #fff; }
+    select:focus, textarea:focus, input:focus { border-color: #8b7cf8; }
+    textarea { min-height: 90px; resize: vertical; }
+
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; color: #dcd9ff; margin: 0; }
+    .check input { width: 18px; height: 18px; accent-color: #7c6cf6; }
+
+    /* الزر الرئيسي */
+    #sendBtn {
+      width: 100%; margin-top: 16px; padding: 15px; font-size: 18px; font-weight: bold;
+      color: #fff; background: linear-gradient(135deg, #7c6cf6, #5a8bf6);
+      border: none; border-radius: 14px; cursor: pointer; transition: .2s;
+    }
+    #sendBtn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(124,108,246,.4); }
+    #sendBtn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+    .status { display: none; margin-top: 12px; font-size: 14px; color: #ffd479; }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.3); border-top-color: #ffd479;
+      border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-left: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .msg {
+      border-radius: 14px; padding: 14px; margin-bottom: 12px;
+      line-height: 1.9; font-size: 15px; white-space: pre-wrap; word-wrap: break-word;
+    }
+    .user { background: rgba(124,108,246,.25); border: 1px solid rgba(124,108,246,.5); }
+    .bot  { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); }
+    .msg.error { background: rgba(255,80,80,.15); border: 1px solid rgba(255,80,80,.5); }
+    .who { font-size: 12px; color: #a9a4e8; margin-bottom: 6px; font-weight: bold; }
+
+    .toolbar { display: flex; gap: 10px; }
+    .toolbar button {
+      flex: 1; padding: 10px; border: none; border-radius: 12px;
+      background: rgba(255,255,255,.1); color: #fff; font-size: 14px; cursor: pointer;
+    }
+    .toolbar button:hover { background: rgba(255,255,255,.2); }
+
+    footer { text-align: center; font-size: 12.5px; color: #9d99c9; margin-top: 10px; line-height: 1.8; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>🤖 مساعد البحث الذكي</h1>
+    <p>مدعوم بنماذج Perplexity عبر Puter.js — بدون مفاتيح API</p>
+  </header>
+
+  <div class="card">
+    <label>اختر النموذج:</label>
+    <select id="model">
+      <option value="perplexity/sonar">sonar — بحث سريع</option>
+      <option value="perplexity/sonar-pro">sonar-pro — بحث احترافي</option>
+      <option value="perplexity/sonar-pro-search">sonar-pro-search — بحث متقدم بالمصادر</option>
+      <option value="perplexity/sonar-deep-research">sonar-deep-research — بحث عميق وشامل (أبطأ لكن مفصّل)</option>
+      <option value="perplexity/sonar-reasoning-pro">sonar-reasoning-pro — تفكير منطقي وتحليل</option>
+    </select>
+
+    <label style="margin-top:14px">اكتب سؤالك:</label>
+    <textarea id="question" placeholder="مثال: ما أحدث التطورات في أبحاث الحاسوب الكمي؟"></textarea>
+
+    <label style="margin-top:14px">رابط صورة لتحليلها (اختياري):</label>
+    <input type="text" id="imageUrl" placeholder="https://example.com/image.jpg" dir="ltr" />
+
+    <div class="row">
+      <label class="check">
+        <input type="checkbox" id="stream" checked />
+        عرض الإجابة أثناء كتابتها (بث مباشر)
+      </label>
+    </div>
+
+    <!-- الزر: عند الضغط عليه يتم البحث -->
+    <button id="sendBtn" onclick="send()">🚀 ابحث الآن</button>
+
+    <div class="status" id="status"><span class="spinner"></span><span id="statusText"> جاري البحث...</span></div>
+  </div>
+
+  <div class="card">
+    <div id="chat"></div>
+    <div class="toolbar">
+      <button onclick="copyLast()">📋 نسخ آخر إجابة</button>
+      <button onclick="clearChat()">🗑️ محادثة جديدة</button>
+    </div>
+  </div>
+
+  <footer>
+    ⚠️ مطلوب اتصال بالإنترنت • أول مرة قد تظهر نافذة تسجيل دخول مجاني من Puter — سجّل دخولاً مجانياً وسيعمل كل شيء
+  </footer>
+</div>
+
+<script>
+  let lastAnswer = "";
+  let busy = false;
+
+  function $(id) { return document.getElementById(id); }
+  function scrollDown() { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }); }
+  function showStatus(t) { $("status").style.display = "block"; $("statusText").textContent = " " + t; }
+  function hideStatus() { $("status").style.display = "none"; }
+
+  // إضافة رسالة جديدة (من المستخدم أو من المساعد) إلى منطقة المحادثة
+  function addMsg(cls, who, text) {
+    const outer = document.createElement("div");
+    outer.className = "msg " + cls;
+    const w = document.createElement("div"); w.className = "who"; w.textContent = who;
+    const b = document.createElement("div"); b.className = "body"; b.textContent = text;
+    outer.appendChild(w); outer.appendChild(b);
+    $("chat").appendChild(outer);
+    scrollDown();
+    return { outer, body: b };
+  }
+
+  // استخراج النص من رد Puter سواء كان نصاً أو كائناً
+  function getText(resp) {
+    if (resp == null) return "";
+    if (typeof resp === "string") return resp;
+    if (typeof resp.text === "string") return resp.text;
+    const c = resp.message && resp.message.content;
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) return c.map(p => p.text || "").join("");
+    return JSON.stringify(resp, null, 2);
+  }
+
+  // ======= الدالة الرئيسية: تعمل عند الضغط على زر "ابحث الآن" =======
+  async function send() {
+    if (busy) return;
+    const q = $("question").value.trim();
+    if (!q) { alert("اكتب سؤالك أولاً 🙂"); return; }
+    if (typeof puter === "undefined" || !puter.ai) {
+      alert("تعذّر تحميل مكتبة Puter — تأكد من اتصالك بالإنترنت ثم أعد تحميل الصفحة");
+      return;
+    }
+
+    const model = $("model").value;
+    const useStream = $("stream").checked;
+    const imgUrl = $("imageUrl").value.trim();
+
+    busy = true;
+    $("sendBtn").disabled = true;
+    addMsg("user", "أنت", q);
+    const M = addMsg("bot", "المساعد", "");
+    showStatus("جاري البحث، انتظر قليلا...");
+
+    try {
+      if (useStream) {
+        // بث مباشر مثل المثال 5 في الصور
+        const response = imgUrl
+          ? await puter.ai.chat(q, imgUrl, { model, stream: true })
+          : await puter.ai.chat(q, { model, stream: true });
+
+        for await (const part of response) {
+          if (part && part.text) { M.body.textContent += part.text; scrollDown(); }
+        }
+      } else {
+        // إجابة كاملة دفعة واحدة مثل المثال 1 في الصور
+        const response = imgUrl
+          ? await puter.ai.chat(q, imgUrl, { model })
+          : await puter.ai.chat(q, { model });
+        M.body.textContent = getText(response);
+      }
+
+      lastAnswer = M.body.textContent;
+      if (!lastAnswer.trim()) M.body.textContent = "لم تصل إجابة. حاول مرة أخرى.";
+    } catch (err) {
+      M.outer.classList.add("error");
+      M.body.textContent = "❌ حدث خطأ: " + (err && err.message ? err.message : err)
+        + "\n💡 تأكد من اتصال الإنترنت، وأغلق أي نافذة حجب (popup blocker) وحاول مجدداً.";
+    } finally {
+      hideStatus();
+      busy = false;
+      $("sendBtn").disabled = false;
+      scrollDown();
+    }
+  }
+
+  // نسخ آخر إجابة
+  function copyLast() {
+    if (!lastAnswer) { alert("لا توجد إجابة بعد"); return; }
+    const done = () => alert("✅ تم نسخ الإجابة");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(lastAnswer).then(done).catch(() => fallbackCopy(done));
+    } else { fallbackCopy(done); }
+  }
+  function fallbackCopy(done) {
+    const t = document.createElement("textarea");
+    t.value = lastAnswer; document.body.appendChild(t); t.select();
+    document.execCommand("copy"); document.body.removeChild(t); done();
+  }
+
+  // محادثة جديدة
+  function clearChat() { $("chat").innerHTML = ""; lastAnswer = ""; }
+
+  // إرسال سريع بالضغط على Ctrl + Enter
+  $("question").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+  });
+</script>
+</body>
+</html>
