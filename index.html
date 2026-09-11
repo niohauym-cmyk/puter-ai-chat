@@ -71,6 +71,53 @@
     .msg.error { background: rgba(255,80,80,.15); border: 1px solid rgba(255,80,80,.5); }
     .who { font-size: 12px; color: #a9a4e8; margin-bottom: 6px; font-weight: bold; }
 
+    /* ===== تنسيق عرض الإجابات المنسقة (Markdown) ===== */
+    .bot .body { white-space: normal; }
+    .body p { margin: 0 0 10px; }
+    .body p:last-child { margin-bottom: 0; }
+    .body h1, .body h2, .body h3, .body h4 { color: #cfc9ff; margin: 16px 0 8px; line-height: 1.6; }
+    .body h1 { font-size: 20px; }
+    .body h2 { font-size: 18px; }
+    .body h3 { font-size: 16px; }
+    .body h4 { font-size: 15px; }
+    .body h1:first-child, .body h2:first-child, .body h3:first-child { margin-top: 0; }
+    .body ul, .body ol { margin: 0 0 10px; padding-right: 22px; }
+    .body li { margin-bottom: 5px; }
+    .body code {
+      background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.12);
+      padding: 1px 7px; border-radius: 7px; font-family: Consolas, monospace;
+      font-size: 13px; direction: ltr; unicode-bidi: embed;
+    }
+    .body pre {
+      background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.14);
+      border-radius: 12px; padding: 13px; overflow-x: auto; margin: 10px 0;
+      text-align: left; direction: ltr;
+    }
+    .body pre code { background: none; border: none; padding: 0; white-space: pre; }
+    .body a { color: #9db8ff; }
+    .body blockquote {
+      border-right: 3px solid #7c6cf6; background: rgba(124,108,246,.1);
+      padding: 8px 12px; border-radius: 8px; margin: 10px 0; color: #d6d2f5;
+    }
+    .body table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 14px; }
+    .body th, .body td { border: 1px solid rgba(255,255,255,.18); padding: 6px 12px; }
+    .body th { background: rgba(124,108,246,.25); color: #e4e0ff; }
+    .body hr { border: none; border-top: 1px solid rgba(255,255,255,.2); margin: 14px 0; }
+    .cite {
+      background: rgba(124,108,246,.4); color: #d9d4ff; border-radius: 8px;
+      padding: 1px 7px; font-size: 11px; margin: 0 2px; vertical-align: super; line-height: 1.4;
+    }
+    .cite a { color: #d9d4ff; text-decoration: none; }
+    .sources {
+      margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.15);
+      font-size: 13.5px;
+    }
+    .sources .st { color: #a9a4e8; font-weight: bold; margin-bottom: 6px; }
+    .sources ol { margin: 0; padding-right: 20px; }
+    .sources li { margin-bottom: 4px; }
+    .msg { animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
     .toolbar { display: flex; gap: 10px; }
     .toolbar button {
       flex: 1; padding: 10px; border: none; border-radius: 12px;
@@ -183,26 +230,47 @@
     const M = addMsg("bot", "المساعد", "");
     showStatus("جاري البحث، انتظر قليلا...");
 
+    let raw = "";
+    let respObj = null;
     try {
       if (useStream) {
         // بث مباشر مثل المثال 5 في الصور
         const response = imgUrl
           ? await puter.ai.chat(q, imgUrl, { model, stream: true })
           : await puter.ai.chat(q, { model, stream: true });
+        respObj = response;
 
+        let scheduled = false;
         for await (const part of response) {
-          if (part && part.text) { M.body.textContent += part.text; scrollDown(); }
+          if (part && part.text) {
+            raw += part.text;
+            // إعادة التنسيق أثناء البث (مرة واحدة لكل إطار لضمان السلاسة)
+            if (!scheduled) {
+              scheduled = true;
+              requestAnimationFrame(() => {
+                M.body.innerHTML = renderMarkdown(raw, []);
+                scrollDown();
+                scheduled = false;
+              });
+            }
+          }
+          if (part && (part.citations || part.search_results)) respObj = part;
         }
       } else {
         // إجابة كاملة دفعة واحدة مثل المثال 1 في الصور
         const response = imgUrl
           ? await puter.ai.chat(q, imgUrl, { model })
           : await puter.ai.chat(q, { model });
-        M.body.textContent = getText(response);
+        respObj = response;
+        raw = getText(response);
       }
 
-      lastAnswer = M.body.textContent;
-      if (!lastAnswer.trim()) M.body.textContent = "لم تصل إجابة. حاول مرة أخرى.";
+      lastAnswer = raw;
+      if (!raw.trim()) {
+        M.body.textContent = "لم تصل إجابة. حاول مرة أخرى.";
+      } else {
+        finishMessage(M, raw, respObj);
+      }
     } catch (err) {
       M.outer.classList.add("error");
       M.body.textContent = "❌ حدث خطأ: " + (err && err.message ? err.message : err)
@@ -213,6 +281,187 @@
       $("sendBtn").disabled = false;
       scrollDown();
     }
+  }
+
+  // ================================================================
+  // محرك تنسيق خفيف: يحوّل إجابة الذكاء الاصطناعي (Markdown) إلى HTML
+  // منسق وجميل: عناوين، قوائم، جداول، أكواد، روابط، وأرقام المصادر
+  // ================================================================
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // تنسيقات داخل السطر: كود، روابط، عريض، مائل، وشرائح أرقام المصادر
+  function inlineFmt(t, cites) {
+    const stash = [];
+    const keep = html => { stash.push(html); return "\u0003" + (stash.length - 1) + "\u0003"; };
+
+    // كود داخل السطر `code`
+    t = t.replace(/`([^`\n]+)`/g, (m, c) => keep("<code>" + c + "</code>"));
+    // روابط بصيغة [نص](رابط)
+    t = t.replace(/\[([^\]\n]+)\]\((https?:[^\s)]+)\)/g, (m, txt, url) =>
+      keep('<a href="' + url + '" target="_blank" rel="noopener">' + txt + "</a>"));
+    // روابط مباشرة http...
+    t = t.replace(/\bhttps?:\/\/[^\s<>\u0003]+/g, m =>
+      keep('<a href="' + m + '" target="_blank" rel="noopener">' + m + "</a>"));
+    // عريض **نص**
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    t = t.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    // مائل *نص*
+    t = t.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    // أرقام المصادر [1] أو [1][4][7] تتحول إلى شرائح صغيرة مرتبة
+    t = t.replace(/\[\s*(\d{1,3})\s*\]/g, "\u0001$1\u0001");
+    t = t.replace(/(?:\u0001\d{1,3}\u0001)+/g, m => "\u0002" + m.match(/\d{1,3}/g).join(",") + "\u0002");
+    t = t.replace(/\u0002([\d,]+)\u0002/g, (m, list) => {
+      const parts = list.split(",").map(n => {
+        const c = cites && cites[parseInt(n, 10) - 1];
+        return c ? '<a href="' + escapeHtml(c.url) + '" target="_blank" rel="noopener">' + n + "</a>" : n;
+      });
+      return '<sup class="cite">' + parts.join("\u2009") + "</sup>";
+    });
+    // إرجاع الأجزاء المحفوظة
+    t = t.replace(/\u0003(\d+)\u0003/g, (m, i) => stash[+i]);
+    return t;
+  }
+
+  // المحرك الرئيسي: نص Markdown -> HTML منسق
+  function renderMarkdown(src, cites) {
+    cites = cites || [];
+    // إزالة كتل التفكير من نماذج التفكير (<think>)
+    let text = String(src || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    text = escapeHtml(text);
+    // ضمان وجود أسوار الأكواد على أسطر مستقلة (مع الحفاظ على اسم اللغة)
+    text = text.replace(/```([a-zA-Z0-9+#._-]*)/g, "\n```$1\n");
+
+    // استخراج كتل الأكواد
+    const codeBlocks = [];
+    text = text.replace(/```[a-zA-Z0-9+#._-]*\n?([\s\S]*?)```/g, (m, code) => {
+      codeBlocks.push("<pre><code>" + code.replace(/^\n+/, "").replace(/\n+$/, "") + "</code></pre>");
+      return "\u0000B" + (codeBlocks.length - 1) + "\u0000";
+    });
+
+    const lines = text.split("\n");
+    let html = "", para = [], list = null;
+
+    const flushPara = () => { if (para.length) { html += "<p>" + para.join("<br>") + "</p>"; para = []; } };
+    const closeList = () => { if (list) { html += "</" + list + ">"; list = null; } };
+    const openList = type => { if (list !== type) { closeList(); html += "<" + type + ">"; list = type; } };
+    const emit = x => { flushPara(); closeList(); html += x; };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // كتلة كود محفوظة
+      const cb = trimmed.match(/^\u0000B(\d+)\u0000$/);
+      if (cb) { emit(codeBlocks[+cb[1]]); continue; }
+      // سطر فارغ
+      if (!trimmed) { flushPara(); closeList(); continue; }
+      // عنوان ## 
+      const h = trimmed.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        const lvl = Math.min(h[1].length, 4);
+        emit("<h" + lvl + ">" + inlineFmt(h[2], cites) + "</h" + lvl + ">");
+        continue;
+      }
+      // خط فاصل --- أو ***
+      if (/^([-*_=]\s?){3,}$/.test(trimmed)) { emit("<hr>"); continue; }
+      // اقتباس >
+      if (/^&gt;\s?/.test(trimmed)) {
+        emit("<blockquote>" + inlineFmt(trimmed.replace(/^&gt;\s?/, ""), cites) + "</blockquote>");
+        continue;
+      }
+      // جدول | عمود | عمود |
+      if (/^\|/.test(trimmed) && i + 1 < lines.length && lines[i + 1].includes("-") && /^[\s|:\-]+$/.test(lines[i + 1])) {
+        const parseRow = row => row.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => c.trim());
+        const head = parseRow(trimmed);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) { rows.push(parseRow(lines[i])); i++; }
+        i--;
+        let tHtml = "<table><tr>" + head.map(c => "<th>" + inlineFmt(c, cites) + "</th>").join("") + "</tr>";
+        rows.forEach(r => { tHtml += "<tr>" + r.map(c => "<td>" + inlineFmt(c, cites) + "</td>").join("") + "</tr>"; });
+        emit(tHtml + "</table>");
+        continue;
+      }
+      // قائمة نقطية
+      const ul = trimmed.match(/^[-*•]\s+(.*)$/);
+      if (ul) { openList("ul"); para = []; html += "<li>" + inlineFmt(ul[1], cites) + "</li>"; continue; }
+      // قائمة مرقمة
+      const ol = trimmed.match(/^\d{1,2}[.)]\s+(.*)$/);
+      if (ol) { openList("ol"); para = []; html += "<li>" + inlineFmt(ol[1], cites) + "</li>"; continue; }
+
+      para.push(inlineFmt(trimmed, cites));
+    }
+    flushPara();
+    closeList();
+    return html;
+  }
+
+  // استخراج قائمة المصادر من رد Puter إن وُجدت
+  function extractCitations(resp) {
+    let arr = null;
+    if (resp && typeof resp === "object") {
+      arr = resp.citations || resp.search_results ||
+            (resp.message && (resp.message.citations || resp.message.search_results)) || null;
+    }
+    if (!Array.isArray(arr)) return [];
+    return arr.map(it => {
+      if (typeof it === "string") return { url: it, title: it };
+      if (it && typeof it === "object") {
+        const url = it.url || it.link || "";
+        const title = it.title || it.name || url;
+        return url ? { url: String(url), title: String(title) } : null;
+      }
+      return null;
+    }).filter(c => c && /^https?:/i.test(c.url)).slice(0, 20);
+  }
+
+  // قائمة المصادر أسفل الإجابة
+  function sourcesHtml(cites) {
+    let h = '<div class="sources"><div class="st">📚 المصادر:</div><ol>';
+    cites.forEach(c => {
+      h += '<li><a href="' + escapeHtml(c.url) + '" target="_blank" rel="noopener">' + escapeHtml(c.title) + "</a></li>";
+    });
+    return h + "</ol></div>";
+  }
+
+  // عرض الإجابة النهائية منسقة مع المصادر
+  function finishMessage(M, raw, respObj) {
+    const cites = extractCitations(respObj);
+    M.body.innerHTML = renderMarkdown(raw, cites) + (cites.length ? sourcesHtml(cites) : "");
+    scrollDown();
+  }
+
+  // معاينة تجريبية: افتح الصفحة مع ?demo لرؤية شكل الإجابات المنسقة
+  if (location.search.indexOf("demo") !== -1) {
+    addMsg("user", "أنت", "ما فوائد البصل؟");
+    const B = addMsg("bot", "المساعد", "");
+    const sample = `## فوائد البصل الصحية
+يُعد البصل من **أفيد الخضار** للجسم، وأبرز فوائده:
+
+- غني بمضادات الأكسدة التي تقاوم **الالتهابات** [1][4][7].
+- يحتوي على *الكيرسيتين* الذي يدعم صحة **القلب** ويخفض ضغط الدم [2][5].
+- يساعد على تنظيم سكر الدم [1][3].
+- يدعم المناعة بفضل مركبات **الكبريت** الطبيعية [4].
+
+| العنصر | الفائدة |
+|---|---|
+| الكيرسيتين | مضاد أكسدة قوي |
+| الكبريت | مضاد بكتيري |
+
+\`\`\`python
+# مثال بسيط
+print("البصل مفيد!")
+\`\`\`
+
+> ملاحظة: استشر الطبيب قبل أي استخدام علاجي.
+وإذا أردت، أستطيع إرسال وصفة لشاي البصل [2].`;
+    const cites = [
+      { title: "Healthline - Onion benefits", url: "https://www.healthline.com/nutrition/onion-benefits" },
+      { title: "WebMD - Onion overview", url: "https://www.webmd.com/vitamins/ai/ingredientmono-643-onion" }
+    ];
+    B.body.innerHTML = renderMarkdown(sample, cites) + sourcesHtml(cites);
   }
 
   // نسخ آخر إجابة
